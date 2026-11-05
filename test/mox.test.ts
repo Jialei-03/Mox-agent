@@ -49,7 +49,10 @@ test('工具：和 Pi 同名同参数的七个工具', async () => {
   assert.equal(await tool.grep.run({ pattern: 'TWO', ignoreCase: true }), 'src/a.ts:2: const two = 20;');
   assert.equal(await tool.find.run({ pattern: '*.ts' }), 'src/a.ts');
   assert.equal(await tool.ls.run({}), 'big.txt\nsrc/');
-  assert.match(await tool.bash.run({ command: 'seq 1 3000; exit 2' }), /^…（前面省略[\s\S]*\n3000\n\n\[退出码 2\]$/);
+  await assert.rejects(tool.bash.run({ command: 'seq 1 3000; exit 2' }), /^Error: …（前面省略[\s\S]*\n3000\n\n\[退出码 2\]$/);
+  const started = Date.now();   // 超时连同后台子进程一起杀掉，不会被它握着的管道拖住
+  await assert.rejects(tool.bash.run({ command: 'sleep 30 & sleep 30', timeout: 0.5 }), /超时 0.5 秒/);
+  assert.ok(Date.now() - started < 2000);
 });
 
 test('权限：被拒绝的调用变成错误结果交回模型，文件没有被写', { skip }, async () => {

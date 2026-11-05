@@ -78,16 +78,28 @@ export function codingTools(cwd: string): Tool[] {
     },
     {
       name: 'bash',
-      description: '在工作目录执行 shell 命令，返回输出（stdout 和 stderr 合在一起）和退出码。输出太长时保留最后 2000 行或 50KB。',
+      description: '在工作目录执行 shell 命令，返回输出（stdout 和 stderr 合在一起）和退出码，退出码不是 0 时作为错误返回。输出太长时保留最后 2000 行或 50KB。',
       parameters: object({ command: string('要执行的命令'), timeout: number('超时秒数（可选，默认不限）') }, ['command']),
+      // 命令单独成一个进程组：超时或取消时连同它启动的子进程一起杀掉。非零退出码作为错误交给模型
       run: ({ command, timeout }, signal) =>
         new Promise((done, fail) => {
-          const child = spawn('bash', ['-c', command], { cwd, signal, timeout: timeout ? timeout * 1000 : undefined });
-          let output = '';
+          const child = spawn('bash', ['-c', command], { cwd, detached: true });
+          let output = '', stopped = '';
+          const kill = (why: string) => { stopped = why; try { process.kill(-child.pid!, 'SIGKILL'); } catch {} };
+          const timer = timeout ? setTimeout(() => kill(`超时 ${timeout} 秒，已终止`), timeout * 1000) : undefined;
+          const abort = () => kill('已取消');
+          signal?.addEventListener('abort', abort, { once: true });
           child.stdout.on('data', d => (output += d));
           child.stderr.on('data', d => (output += d));
-          child.on('close', (code, killedBy) => done(clip(`${output}\n[${code === null ? `被 ${killedBy} 终止${timeout ? `（超时 ${timeout} 秒）` : ''}` : `退出码 ${code}`}]`, 'tail')));
-          child.on('error', e => fail(new Error(clip(`${output}\n[${e.name === 'AbortError' ? '已取消' : e.message}]`, 'tail'))));
+          child.on('error', e => fail(e));
+          // 等 exit 而不是 close：命令放到后台的进程可能一直握着输出管道
+          child.on('exit', code => setTimeout(() => {
+            clearTimeout(timer);
+            signal?.removeEventListener('abort', abort);
+            const text = clip(`${output}\n[${stopped || `退出码 ${code}`}]`, 'tail');
+            if (code === 0 && !stopped) done(text);
+            else fail(new Error(text));
+          }, 50));
         }),
     },
     {

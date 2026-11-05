@@ -97,7 +97,8 @@ let controller: AbortController | undefined;
 const steering: string[] = [];
 const contextWindow = Number(env.MOX_CONTEXT_WINDOW ?? 128_000);
 async function maybeCompact(messages: Msg[], force = false) {
-  if (!force && estimateTokens(messages) + estimateTokens(system()) < contextWindow * 0.8) return;
+  // 每次请求都会带上系统提示和全部工具定义，它们同样占上下文
+  if (!force && estimateTokens(messages) + estimateTokens(system()) + estimateTokens(tools.map(({ run, ...spec }) => spec)) < contextWindow * 0.8) return;
   const result = await compact(messages, model, contextWindow * 0.2, controller?.signal);
   if (!result) return;
   session.compacted(result.summary, result.keep);

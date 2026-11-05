@@ -64,7 +64,7 @@ const system = () => [basePrompt, ...extensions.prompts.map(part => part())].fil
 // 权限：先问扩展（拒绝或放行），再问用户；只读工具直接执行
 const allowed = new Set(['read', 'grep', 'find', 'ls', 'task']);
 async function beforeTool(name: string, args: unknown) {
-  const verdict = await extensions.emit('tool_call', name, args);
+  const verdict = await extensions.verdict(name, args);
   if (typeof verdict === 'string') return verdict;
   if (verdict === true || has('--yolo') || allowed.has(name)) return;
   if (!process.stdin.isTTY) return '没有终端可以确认，已拒绝。想自动执行请加 --yolo';

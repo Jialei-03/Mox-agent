@@ -1,6 +1,6 @@
 # mox
 
-一个零依赖的 Coding Agent，全部代码 655 行，每个机制一个文件。
+一个零依赖的 Coding Agent，全部代码 656 行，每个机制一个文件。
 
 它是一个能用的命令行 Agent：读代码、改文件、跑命令，会话可以恢复，上下文满了会压缩，能接 MCP 服务器、加载 Skills 和扩展，还能把子任务交给子 Agent。同时它短到一个下午就能读完，是 [Learn Pi Agent](https://github.com/Jialei-03/learn-pi-agent) 课程里动手搭 Agent 的范例。
 
@@ -60,7 +60,7 @@ mox -e guard.ts          # 加载一个扩展文件，可以写多次
 | [`src/compact.ts`](src/compact.ts) | 29 | 上下文压缩：较早的消息交给模型写成摘要，切点只落在用户消息前 |
 | [`src/context.ts`](src/context.ts) | 42 | 系统提示：AGENTS.md / CLAUDE.md、Skills 目录 |
 | [`src/mcp.ts`](src/mcp.ts) | 58 | MCP 客户端：stdio 上的 JSON-RPC，把服务器的工具变成 mox 的工具 |
-| [`src/extensions.ts`](src/extensions.ts) | 50 | 扩展接口：注册工具和命令、追加系统提示、拦截工具调用和结果、让 Agent 继续 |
+| [`src/extensions.ts`](src/extensions.ts) | 51 | 扩展接口：注册工具和命令、追加系统提示、拦截工具调用和结果、让 Agent 继续 |
 | [`src/cli.ts`](src/cli.ts) | 167 | 命令行：权限确认、子 Agent、交互与一次性两种模式 |
 
 建议的阅读顺序：`model.ts` → `loop.ts` → `tools.ts` → `cli.ts`，读完这四个文件就理解了一个 Agent 的骨架，其余每个文件各自补上一种能力。
@@ -98,7 +98,7 @@ mox -e guard.ts          # 加载一个扩展文件，可以写多次
 | `registerCommand(name, run)` | 注册 `/name` 命令 |
 | `addSystemPrompt(() => text)` | 追加一段系统提示，每次运行前重新取值 |
 | `ask(question, choices)` | 让用户从几个选项里选一个 |
-| `on('tool_call', (name, args) => 理由)` | 工具执行前调用；返回字符串就拒绝，模型会看到这个理由 |
+| `on('tool_call', (name, args) => 理由 或 true)` | 工具执行前调用；返回字符串就拒绝（模型会看到这个理由），返回 `true` 就放行、不再问用户。多个扩展按加载顺序，第一个给出结论的说了算 |
 | `on('tool_result', (name, args, result) => 新结果)` | 工具执行后调用；返回字符串就替换结果 |
 | `on('agent_end', answer => 下一句)` | Agent 准备停下时调用；返回字符串就当作新的用户消息，让它接着干 |
 | `on('shutdown', () => …)` | 退出前调用 |

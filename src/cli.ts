@@ -61,18 +61,18 @@ const extensions = await loadExtensions(extensionSources, { cwd, tools, ask });
 const basePrompt = systemPrompt(cwd, home, skills);
 const system = () => [basePrompt, ...extensions.prompts.map(part => part())].filter(Boolean).join('\n\n');
 
-// 权限：先问扩展，再问用户；只读工具直接执行
+// 权限：先问扩展（拒绝或放行），再问用户；只读工具直接执行
 const allowed = new Set(['read', 'grep', 'find', 'ls', 'task']);
 async function beforeTool(name: string, args: unknown) {
-  const reason = await extensions.emit('tool_call', name, args);
-  if (reason) return reason;
-  if (has('--yolo') || allowed.has(name)) return;
+  const verdict = await extensions.emit('tool_call', name, args);
+  if (typeof verdict === 'string') return verdict;
+  if (verdict === true || has('--yolo') || allowed.has(name)) return;
   if (!process.stdin.isTTY) return '没有终端可以确认，已拒绝。想自动执行请加 --yolo';
   const reply = await ask(`允许 ${name} ${dim(oneLine(JSON.stringify(args)))}？`, ['允许', '本次会话都允许', '拒绝']);
   if (reply === '本次会话都允许') allowed.add(name);
   else if (reply !== '允许') return '用户拒绝了这次调用';
 }
-const afterTool = (name: string, args: unknown, result: string) => extensions.emit('tool_result', name, args, result);
+const afterTool = async (name: string, args: unknown, result: string) => extensions.text(await extensions.emit('tool_result', name, args, result));
 
 // 有些模型（比如 MiniMax）把思考过程用 <think> 包在正文里，显示成灰色
 let thinking = false;
@@ -127,7 +127,7 @@ async function run(input: string) {
       session.messages.push(message);
       session.save(message);
       const final = await runLoop(session.messages, options(controller.signal));
-      text = await extensions.emit('agent_end', final);
+      text = extensions.text(await extensions.emit('agent_end', final));
       if (text) print(dim(`\n↳ 扩展让 Agent 继续：${oneLine(text)}\n`));
     }
     print('\n');

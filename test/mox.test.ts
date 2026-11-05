@@ -151,12 +151,13 @@ test('扩展：注册工具（同名替换）、命令、系统提示片段，�
       mox.addSystemPrompt(() => `当前模式：${mode}`);
       mox.on('tool_call', (name: string) => (mode === 'plan' && name === 'write' ? '计划模式下不能写文件' : undefined));
     },
-    mox => mox.on('tool_call', () => '第二个扩展的理由'),
+    mox => mox.on('tool_call', (name: string) => (name === 'ls' ? true : '第二个扩展的理由')),
   ], { cwd: '/', tools, ask: async () => undefined });
   assert.equal(tools.length, 7);
   assert.equal(await tools.find(t => t.name === 'bash')!.run({}), 'sandboxed');
   assert.equal(await ext.emit('tool_call', 'write', {}), '计划模式下不能写文件');
   assert.equal(await ext.emit('tool_call', 'read', {}), '第二个扩展的理由');
+  assert.equal(await ext.emit('tool_call', 'ls', {}), true);                // true 表示放行，不再问用户
   await ext.commands.get('mode')!('build');
   assert.equal(ext.prompts[0](), '当前模式：build');
   assert.equal(await ext.emit('agent_end', 'done'), undefined);

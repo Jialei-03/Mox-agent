@@ -11,7 +11,7 @@ export type ExtensionApi = {
   registerCommand: (name: string, run: (args: string) => unknown) => void;
   addSystemPrompt: (part: () => string) => void;                        // 每次运行前重新取值
   ask: (question: string, choices: string[]) => Promise<string | undefined>;
-  // tool_call(name, args)：返回字符串就拒绝这次调用，字符串是给模型看的理由
+  // tool_call(name, args)：返回字符串就拒绝这次调用（字符串是给模型看的理由），返回 true 就放行、不再问用户
   // tool_result(name, args, result)：返回字符串就替换工具结果
   // agent_end(answer)：返回字符串就把它当作新的用户消息，让 Agent 接着干
   on: (event: 'tool_call' | 'tool_result' | 'agent_end' | 'shutdown', handler: Handler) => void;
@@ -39,12 +39,13 @@ export async function loadExtensions(sources: Array<string | Extension>, host: {
     on: (event, handler) => (handlers[event] ??= []).push(handler),
   };
   for (const source of sources) await (typeof source === 'function' ? source : (await import(pathToFileURL(resolve(source)).href)).default)(api);
-  /** 依次调用处理器，返回第一个非空的结果。 */
-  const emit = async (event: string, ...args: unknown[]): Promise<string | undefined> => {
+  /** 按加载顺序调用处理器，第一个给出结论（非空返回值）的说了算。 */
+  const emit = async (event: string, ...args: unknown[]): Promise<unknown> => {
     for (const handler of handlers[event] ?? []) {
       const result = await handler(...args);
-      if (result) return String(result);
+      if (result) return result;
     }
   };
-  return { commands, prompts, emit };
+  const text = (value: unknown) => (typeof value === 'string' ? value : undefined);
+  return { commands, prompts, emit, text };
 }

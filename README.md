@@ -2,7 +2,7 @@
 
 一个零依赖的 Coding Agent，全部代码 678 行，每个机制一个文件。
 
-它是一个能用的命令行 Agent：读代码、改文件、跑命令，会话可以恢复，上下文满了会压缩，能接 MCP 服务器、加载 Skills 和扩展，还能把子任务交给子 Agent。同时它短到一个下午就能读完，是 [Learn Pi Agent](https://github.com/Jialei-03/learn-pi-agent) 课程里动手搭 Agent 的范例。
+它是一个能用的命令行 Agent：读代码、改文件、跑命令，会话可以恢复，上下文满了会压缩，能接 MCP 服务器、加载 Skills 和扩展，还能把子任务交给子 Agent。同时它短到一个下午就能读完。它是 [Learn Pi Agent](https://github.com/Jialei-03/learn-pi-agent) 课程实战环节的参考答案：课程每章先读懂 [Pi](https://github.com/earendil-works/pi) 的一个机制，章末再一步步把同一个机制的最小版本加进 mox。
 
 ```
 › 运行 python3 test_calc.py，修好失败的测试

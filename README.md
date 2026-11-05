@@ -24,8 +24,8 @@
 需要 Node.js 22.18 或更新版本（直接运行 TypeScript，不用编译，也没有 npm 依赖）。
 
 ```bash
-git clone https://github.com/Jialei-03/mox.git
-cd mox && npm link      # 之后在任何目录都能用 mox 命令
+git clone https://github.com/Jialei-03/Mox-agent.git
+cd Mox-agent && npm link      # 之后在任何目录都能用 mox 命令
 ```
 
 模型走 OpenAI 兼容的 Chat Completions 接口，MiniMax、DeepSeek、OpenAI、OpenRouter、Ollama 等都可以：

@@ -165,6 +165,11 @@ test('扩展：注册工具（同名替换）、命令、系统提示片段，�
   await ext.commands.get('mode')!('build');
   assert.equal(ext.prompts[0](), '当前模式：build');
   assert.equal(await ext.emit('agent_end', 'done'), undefined);
+  const chain = await loadExtensions([
+    mox => mox.on('tool_result', (_: string, __: unknown, result: string) => `${result}（已检查）`),
+    mox => mox.on('tool_result', (_: string, __: unknown, result: string) => result.replace(/ghp_\w+/g, '[已遮盖]')),
+  ], { cwd: '/', tools: [], ask: async () => undefined });
+  assert.equal(await chain.transform('bash', {}, 'token=ghp_abc123'), 'token=[已遮盖]（已检查）');   // 两个改写都生效
 });
 
 test('MCP：启动服务器、列出工具、调用；起不来的服务器只报警告', async () => {

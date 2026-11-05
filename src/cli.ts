@@ -72,7 +72,7 @@ async function beforeTool(name: string, args: unknown) {
   if (reply === '本次会话都允许') allowed.add(name);
   else if (reply !== '允许') return '用户拒绝了这次调用';
 }
-const afterTool = async (name: string, args: unknown, result: string) => extensions.text(await extensions.emit('tool_result', name, args, result));
+const afterTool = (name: string, args: unknown, result: string) => extensions.transform(name, args, result);
 
 // 有些模型（比如 MiniMax）把思考过程用 <think> 包在正文里，显示成灰色
 let thinking = false;

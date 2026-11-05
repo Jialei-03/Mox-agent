@@ -13,7 +13,7 @@ export type ExtensionApi = {
   ask: (question: string, choices: string[]) => Promise<string | undefined>;
   // tool_call(name, args)：返回字符串就拒绝这次调用（字符串是给模型看的理由），返回 true 就放行、不再问用户。
   //   每个扩展都会被问到，拒绝优先：只要有一个拒绝就拒绝，安全不取决于加载顺序
-  // tool_result(name, args, result)：返回字符串就替换工具结果
+  // tool_result(name, args, result)：返回字符串就替换工具结果；多个扩展依次接力，后一个拿到前一个改过的结果
   // agent_end(answer)：返回字符串就把它当作新的用户消息，让 Agent 接着干
   on: (event: 'tool_call' | 'tool_result' | 'agent_end' | 'shutdown', handler: Handler) => void;
 };
@@ -58,5 +58,13 @@ export async function loadExtensions(sources: Array<string | Extension>, host: {
     }
     return allowed || undefined;
   };
-  return { commands, prompts, emit, text, verdict };
+  /** 工具结果依次经过每个扩展：谁都可以改，后一个拿到前一个改过的结果（比如一个加注释、一个遮掉密钥）。 */
+  const transform = async (name: string, args: unknown, result: string) => {
+    for (const handler of handlers.tool_result ?? []) {
+      const next = await handler(name, args, result);
+      if (typeof next === 'string') result = next;
+    }
+    return result;
+  };
+  return { commands, prompts, emit, text, verdict, transform };
 }

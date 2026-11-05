@@ -100,8 +100,11 @@ test('会话：逐条写进 JSONL，-c 恢复；上次中途退出的工具调�
   assert.match(resumed.messages[3].content as string, /中断/);
   assert.equal(openSession('/proj', home, true).messages.length, 4);
   assert.equal(openSession('/proj', tmp()).messages.length, 0);
-  appendFileSync(first.file, '{"type":"mess\n');              // 写到一半的坏行被跳过，会话照样能打开
-  assert.equal(openSession('/proj', home, true).messages.length, 4);
+  appendFileSync(first.file, '{"type":"mess');                // 写到一半的坏行被跳过，会话照样能打开
+  const afterTorn = openSession('/proj', home, true);
+  assert.equal(afterTorn.messages.length, 4);
+  afterTorn.save({ role: 'user', content: '接着说' });         // 新记录不会和坏行粘在一起
+  assert.equal(openSession('/proj', home, true).messages.at(-1)!.content, '接着说');
 });
 
 test('压缩：较早的消息换成模型写的摘要，切点落在用户消息前，重新打开会话结果一样', { skip }, async () => {

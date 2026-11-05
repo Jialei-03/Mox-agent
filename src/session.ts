@@ -18,7 +18,9 @@ export function openSession(cwd: string, home: string, resume = false): Session 
   const file = join(dir, latest ?? `${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`);
   const write = (record: object) => appendFileSync(file, `${JSON.stringify(record)}\n`);
   const messages: Msg[] = [];
-  for (const line of latest ? readFileSync(file, 'utf8').split('\n').filter(Boolean) : []) {
+  const saved = latest ? readFileSync(file, 'utf8') : '';
+  if (saved && !saved.endsWith('\n')) appendFileSync(file, '\n');    // 最后一行没写完：先换行，免得新记录和它粘成一行
+  for (const line of saved.split('\n').filter(Boolean)) {
     let record;
     try { record = JSON.parse(line); } catch { continue; }       // 写到一半的坏行（比如磁盘满了）跳过，不让整个会话打不开
     if (record.type === 'compact') messages.splice(0, messages.length - record.keep, record.summary);

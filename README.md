@@ -1,6 +1,6 @@
 # mox
 
-一个零依赖的 Coding Agent，全部代码 480 行，每个机制一个文件。
+一个零依赖的 Coding Agent，全部代码 545 行，每个机制一个文件。
 
 它是一个能用的命令行 Agent：读代码、改文件、跑命令，会话可以恢复，上下文满了会压缩，能接 MCP 服务器、加载 Skills 和扩展，还能把子任务交给子 Agent。同时它短到一个下午就能读完，是 [Learn Pi Agent](https://github.com/Jialei-03/learn-pi-agent) 课程里动手搭 Agent 的范例。
 
@@ -44,22 +44,24 @@ mox -p "修复失败的测试"    # 执行一次就退出
 mox -c                   # 继续这个目录最近一次的会话
 mox --yolo               # 执行工具前不再询问
 mox --trust              # 同时加载项目里的 .mox/ 和 .agents/skills
+mox -e guard.ts          # 加载一个扩展文件，可以写多次
 ```
 
-交互模式里：运行中直接打字，这句话会作为“插话”在下一轮送到模型；Ctrl+C 取消当前运行；`/compact` 手动压缩上下文；`/<skill 名>` 使用某个 Skill；`/exit` 退出。
+交互模式里：运行中直接打字，这句话会作为“插话”在下一轮送到模型；Ctrl+C 取消当前运行；`/compact` 手动压缩上下文；`/<skill 名>` 使用某个 Skill；扩展注册的命令同样用 `/名字` 调用；`/exit` 退出。
 
 ## 代码地图
 
 | 文件 | 行数 | 机制 |
 | --- | --- | --- |
 | [`src/model.ts`](src/model.ts) | 43 | 流式调用模型，把分片到达的工具调用拼完整 |
-| [`src/loop.ts`](src/loop.ts) | 61 | Agent 循环：请求 → 执行工具 → 交回结果，直到模型不再调用工具；插话、取消、截断保护 |
+| [`src/loop.ts`](src/loop.ts) | 63 | Agent 循环：请求 → 执行工具 → 交回结果，直到模型不再调用工具；插话、取消、截断保护 |
 | [`src/tools.ts`](src/tools.ts) | 60 | `read`、`write`、`edit`、`bash` 四个工具，输出过长时截断 |
 | [`src/session.ts`](src/session.ts) | 43 | 会话写成 JSONL，逐条追加；恢复时给中途退出的工具调用补上“中断” |
 | [`src/compact.ts`](src/compact.ts) | 24 | 上下文压缩：较早的消息交给模型写成摘要，切点只落在用户消息前 |
 | [`src/context.ts`](src/context.ts) | 42 | 系统提示：AGENTS.md / CLAUDE.md、Skills 目录 |
 | [`src/mcp.ts`](src/mcp.ts) | 54 | MCP 客户端：stdio 上的 JSON-RPC，把服务器的工具变成 mox 的工具 |
-| [`src/cli.ts`](src/cli.ts) | 153 | 命令行：权限确认、扩展、子 Agent、交互与一次性两种模式 |
+| [`src/extensions.ts`](src/extensions.ts) | 50 | 扩展接口：注册工具和命令、追加系统提示、拦截工具调用和结果、让 Agent 继续 |
+| [`src/cli.ts`](src/cli.ts) | 166 | 命令行：权限确认、子 Agent、交互与一次性两种模式 |
 
 建议的阅读顺序：`model.ts` → `loop.ts` → `tools.ts` → `cli.ts`，读完这四个文件就理解了一个 Agent 的骨架，其余每个文件各自补上一种能力。
 
@@ -88,12 +90,23 @@ mox --trust              # 同时加载项目里的 .mox/ 和 .agents/skills
 
 **Skills**：每个 Skill 是一个目录，`SKILL.md` 开头用 frontmatter 写 `name` 和 `description`。系统提示里只列名字和描述，模型需要时自己用 `read` 读全文。
 
-**扩展**：一个模块默认导出一个函数，可以注册工具、拦截工具调用（返回字符串就是拒绝的理由，模型会看到它）：
+**扩展**：一个模块默认导出一个函数，拿到 `mox` 之后可以：
+
+| 接口 | 作用 |
+| --- | --- |
+| `registerTool(tool)` | 注册工具；和已有工具同名时替换它（比如给 `bash` 套一层沙箱） |
+| `registerCommand(name, run)` | 注册 `/name` 命令 |
+| `addSystemPrompt(() => text)` | 追加一段系统提示，每次运行前重新取值 |
+| `ask(question, choices)` | 让用户从几个选项里选一个 |
+| `on('tool_call', (name, args) => 理由)` | 工具执行前调用；返回字符串就拒绝，模型会看到这个理由 |
+| `on('tool_result', (name, args, result) => 新结果)` | 工具执行后调用；返回字符串就替换结果 |
+| `on('agent_end', answer => 下一句)` | Agent 准备停下时调用；返回字符串就当作新的用户消息，让它接着干 |
+| `on('shutdown', () => …)` | 退出前调用 |
 
 ```ts
 // ~/.mox/extensions/guard.ts
 export default mox => {
-  mox.onToolCall((name, args) => name === 'bash' && /\brm\b/.test(args.command) ? '不允许删除文件' : undefined);
+  mox.on('tool_call', (name, args) => name === 'bash' && /\brm\b/.test(args.command) ? '不允许删除文件' : undefined);
   mox.registerTool({
     name: 'now', description: '当前时间', parameters: { type: 'object', properties: {} },
     run: () => new Date().toString(),
@@ -105,7 +118,7 @@ export default mox => {
 
 ## 测试
 
-测试直接调用真实模型，每个机制一条：修 bug、权限拒绝、插话、取消、会话恢复、压缩、项目说明、MCP、子 Agent 与扩展的端到端运行。
+测试直接调用真实模型，每个机制一条：修 bug、权限拒绝、插话、取消、会话恢复、压缩、项目说明、扩展、MCP、子 Agent 与扩展的端到端运行。
 
 ```bash
 export MOX_BASE_URL=… MOX_API_KEY=… MOX_MODEL=MiniMax-M3.1-Flash

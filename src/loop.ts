@@ -14,6 +14,7 @@ export type LoopOptions = {
   signal?: AbortSignal;
   onEvent?: (event: Event) => void;
   beforeTool?: (name: string, args: any) => Promise<string | void> | string | void; // 返回字符串表示拒绝，内容是理由
+  afterTool?: (name: string, args: any, result: string) => Promise<string | void> | string | void; // 返回字符串就替换结果
   steer?: () => string[];                                                         // 运行中用户插的话
   compact?: (messages: Msg[]) => Promise<void>;                                   // 每次请求前，必要时就地压缩
 };
@@ -52,6 +53,7 @@ async function execute(call: ToolCall, finish: string, options: LoopOptions, emi
     const denied = await options.beforeTool?.(tool.name, args);
     if (denied) throw new Error(denied);
     result = await tool.run(args, options.signal);
+    result = (await options.afterTool?.(tool.name, args, result)) || result;
     error = false;
   } catch (e) {
     result = `错误：${(e as Error).message}`;

@@ -10,6 +10,7 @@ import { compact } from '../src/compact.ts';
 import { loadSkills, systemPrompt } from '../src/context.ts';
 import { runLoop, type Tool } from '../src/loop.ts';
 import { connectMcp } from '../src/mcp.ts';
+import { loadExtensions } from '../src/extensions.ts';
 import { openai, type Msg } from '../src/model.ts';
 import { openSession } from '../src/session.ts';
 import { codingTools } from '../src/tools.ts';
@@ -120,6 +121,27 @@ test('项目说明：模型照着 AGENTS.md 做事', { skip }, async () => {
   assert.match(answer.trim().split('\n').at(-1)!, /—— mox/);
 });
 
+test('扩展：注册工具（同名替换）、命令、系统提示片段，事件取第一个非空结果', async () => {
+  const tools = codingTools(tmp());
+  let mode = 'plan';
+  const ext = await loadExtensions([
+    mox => {
+      mox.registerTool({ name: 'bash', description: '包了一层的 bash', parameters: {}, run: () => 'sandboxed' });
+      mox.registerCommand('mode', (args: string) => { mode = args; });
+      mox.addSystemPrompt(() => `当前模式：${mode}`);
+      mox.on('tool_call', (name: string) => (mode === 'plan' && name === 'write' ? '计划模式下不能写文件' : undefined));
+    },
+    mox => mox.on('tool_call', () => '第二个扩展的理由'),
+  ], { cwd: '/', tools, ask: async () => undefined });
+  assert.equal(tools.length, 4);
+  assert.equal(await tools.find(t => t.name === 'bash')!.run({}), 'sandboxed');
+  assert.equal(await ext.emit('tool_call', 'write', {}), '计划模式下不能写文件');
+  assert.equal(await ext.emit('tool_call', 'read', {}), '第二个扩展的理由');
+  await ext.commands.get('mode')!('build');
+  assert.equal(ext.prompts[0](), '当前模式：build');
+  assert.equal(await ext.emit('agent_end', 'done'), undefined);
+});
+
 test('MCP：启动服务器、列出工具、调用；起不来的服务器只报警告', async () => {
   const warnings: string[] = [];
   const mcp = await connectMcp({ echo: { command: process.execPath, args: [echoServer] }, broken: { command: 'mox-no-such-command' } }, w => warnings.push(w));
@@ -134,7 +156,7 @@ test('命令行：子 Agent、扩展拦截、MCP 工具都由模型真实调用�
   writeFileSync(join(cwd, 'a.txt'), 'a');
   writeFileSync(join(cwd, 'b.txt'), 'b');
   mkdirSync(join(home, '.mox/extensions'), { recursive: true });
-  writeFileSync(join(home, '.mox/extensions/guard.ts'), "export default mox => mox.onToolCall((name, args) => name === 'bash' && /\\brm\\b/.test(args.command) ? '扩展禁止删除文件' : undefined);");
+  writeFileSync(join(home, '.mox/extensions/guard.ts'), "export default mox => mox.on('tool_call', (name, args) => name === 'bash' && /\\brm\\b/.test(args.command) ? '扩展禁止删除文件' : undefined);");
   writeFileSync(join(home, '.mox/mcp.json'), JSON.stringify({ mcpServers: { echo: { command: process.execPath, args: [echoServer] } } }));
   const cli = (args: string[]) => new Promise<{ code: number | null; out: string }>(resolve => {
     const child = spawn(process.execPath, [join(import.meta.dirname, '../src/cli.ts'), ...args], { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: { ...env, HOME: home } });

@@ -1,25 +1,26 @@
 #!/usr/bin/env node
 // mox 命令行：把模型、循环、工具、会话、压缩、Skills、MCP、扩展、子 Agent 装在一起。
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { pathToFileURL } from 'node:url';
 import { compact, estimateTokens } from './compact.ts';
 import { loadSkills, systemPrompt } from './context.ts';
+import { extensionFiles, loadExtensions } from './extensions.ts';
 import { runLoop, type Event, type LoopOptions, type Tool } from './loop.ts';
 import { connectMcp } from './mcp.ts';
 import { openai, type Msg } from './model.ts';
 import { openSession } from './session.ts';
 import { codingTools } from './tools.ts';
 
-const HELP = `用法：mox [-p "任务"] [-c] [--yolo] [--trust]
+const HELP = `用法：mox [-p "任务"] [-c] [--yolo] [--trust] [-e 扩展文件]
   -p "任务"   执行一次就退出
   -c          继续这个目录最近一次的会话
   --yolo      执行工具前不再询问
   --trust     加载项目里的 .mox/（扩展、MCP、Skills）和 .agents/skills
+  -e 文件     加载一个扩展，可以写多次
 环境变量：MOX_MODEL、MOX_API_KEY、MOX_BASE_URL（默认 https://api.openai.com/v1）、MOX_CONTEXT_WINDOW（默认 128000）
-交互命令：/compact 压缩上下文，/<skill 名> 使用某个 Skill，/exit 退出`;
+交互命令：/compact 压缩上下文，/<skill 名> 使用某个 Skill，/<扩展注册的命令>，/exit 退出`;
 
 const argv = process.argv.slice(2);
 const has = (flag: string) => argv.includes(flag);
@@ -42,32 +43,36 @@ const mcpFiles = configDirs.map(d => join(d, 'mcp.json')).filter(existsSync);
 const mcp = await connectMcp(Object.assign({}, ...mcpFiles.map(f => JSON.parse(readFileSync(f, 'utf8')).mcpServers)), m => console.error(dim(m)));
 tools.push(...mcp.tools);
 
-// 扩展：一个模块默认导出一个函数，拿到 api 后可以注册工具、拦截工具调用（返回字符串就是拒绝的理由）
-const toolHooks: Array<(name: string, args: any) => unknown> = [];
-for (const dir of configDirs.map(d => join(d, 'extensions')).filter(existsSync)) {
-  for (const file of readdirSync(dir).filter(f => /\.(ts|js|mjs)$/.test(f)).sort()) {
-    const setup = (await import(pathToFileURL(join(dir, file)).href)).default;
-    await setup({ cwd, registerTool: (tool: Tool) => tools.push(tool), onToolCall: (hook: (name: string, args: any) => unknown) => toolHooks.push(hook) });
-  }
-}
-
 const skills = loadSkills([...configDirs.map(d => join(d, 'skills')), join(home, '.agents', 'skills'), ...(trust ? [join(cwd, '.agents', 'skills')] : [])]);
-const system = systemPrompt(cwd, home, skills);
 const session = openSession(cwd, home, has('-c'));
 const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: !!process.stdin.isTTY });
 
-// 权限：只读工具直接执行，其余的先问用户
+// 向用户提问：列出选项，下一行输入的序号就是回答。没有终端时返回 undefined
 let answer: ((line: string) => void) | undefined;
-const ask = (question: string) => new Promise<string>(resolve => { print(question); answer = resolve; });
+async function ask(question: string, choices: string[]) {
+  if (!process.stdin.isTTY) return undefined;
+  print(`${orange('?')} ${question}\n${choices.map((c, i) => `  ${i + 1}. ${c}`).join('\n')}\n${dim('输入序号：')}`);
+  const line = await new Promise<string>(resolve => (answer = resolve));
+  return choices[Number(line) - 1];
+}
+
+const extensionSources = [...extensionFiles(configDirs.map(d => join(d, 'extensions'))), ...argv.flatMap((a, i) => (a === '-e' ? [argv[i + 1]] : []))];
+const extensions = await loadExtensions(extensionSources, { cwd, tools, ask });
+const basePrompt = systemPrompt(cwd, home, skills);
+const system = () => [basePrompt, ...extensions.prompts.map(part => part())].filter(Boolean).join('\n\n');
+
+// 权限：先问扩展，再问用户；只读工具直接执行
 const allowed = new Set(['read', 'task']);
 async function beforeTool(name: string, args: unknown) {
-  for (const hook of toolHooks) { const reason = await hook(name, args); if (reason) return String(reason); }
+  const reason = await extensions.emit('tool_call', name, args);
+  if (reason) return reason;
   if (has('--yolo') || allowed.has(name)) return;
   if (!process.stdin.isTTY) return '没有终端可以确认，已拒绝。想自动执行请加 --yolo';
-  const reply = (await ask(`${orange('?')} 允许 ${name} ${dim(oneLine(JSON.stringify(args)))}  [y] 允许  [a] 本次会话都允许  [n] 拒绝 `)).toLowerCase();
-  if (reply === 'a') allowed.add(name);
-  if (reply !== 'y' && reply !== 'a') return '用户拒绝了这次调用';
+  const reply = await ask(`允许 ${name} ${dim(oneLine(JSON.stringify(args)))}？`, ['允许', '本次会话都允许', '拒绝']);
+  if (reply === '本次会话都允许') allowed.add(name);
+  else if (reply !== '允许') return '用户拒绝了这次调用';
 }
+const afterTool = (name: string, args: unknown, result: string) => extensions.emit('tool_result', name, args, result);
 
 // 有些模型（比如 MiniMax）把思考过程用 <think> 包在正文里，显示成灰色
 let thinking = false;
@@ -85,14 +90,14 @@ tools.push({
   name: 'task',
   description: '把一个独立的子任务交给子 Agent。它从空白上下文开始，用同样的工具干活，只交回最终结论。适合大范围查找和调研，中间过程不会挤占当前对话。',
   parameters: { type: 'object', properties: { prompt: { type: 'string', description: '子任务的完整说明（子 Agent 看不到当前对话）' } }, required: ['prompt'] },
-  run: ({ prompt }, signal) => runLoop([{ role: 'user', content: prompt }], { model, system, tools: tools.filter(t => t.name !== 'task'), signal, beforeTool, onEvent: show('    ') }),
+  run: ({ prompt }, signal) => runLoop([{ role: 'user', content: prompt }], { model, system: system(), tools: tools.filter(t => t.name !== 'task'), signal, beforeTool, afterTool, onEvent: show('    ') }),
 });
 
 let controller: AbortController | undefined;
 const steering: string[] = [];
 const contextWindow = Number(env.MOX_CONTEXT_WINDOW ?? 128_000);
 async function maybeCompact(messages: Msg[], force = false) {
-  if (!force && estimateTokens(messages) + estimateTokens(system) < contextWindow * 0.8) return;
+  if (!force && estimateTokens(messages) + estimateTokens(system()) < contextWindow * 0.8) return;
   const result = await compact(messages, model, contextWindow * 0.2, controller?.signal);
   if (!result) return;
   session.compacted(result.summary, result.keep);
@@ -100,7 +105,7 @@ async function maybeCompact(messages: Msg[], force = false) {
 }
 
 const options = (signal: AbortSignal): LoopOptions => ({
-  model, system, tools, signal, beforeTool,
+  model, system: system(), tools, signal, beforeTool, afterTool,
   steer: () => steering.splice(0),
   compact: messages => maybeCompact(messages),
   onEvent: e => {
@@ -112,12 +117,18 @@ const options = (signal: AbortSignal): LoopOptions => ({
 
 async function run(input: string) {
   const skill = skills.find(s => input === `/${s.name}` || input.startsWith(`/${s.name} `));
-  const message: Msg = { role: 'user', content: skill ? `${readFileSync(skill.file, 'utf8')}\n\n${input.slice(skill.name.length + 1).trim()}` : input };
-  session.messages.push(message);
-  session.save(message);
+  let text: string | undefined = skill ? `${readFileSync(skill.file, 'utf8')}\n\n${input.slice(skill.name.length + 1).trim()}` : input;
   controller = new AbortController();
   try {
-    await runLoop(session.messages, options(controller.signal));
+    // 扩展可以在 Agent 停下时给出下一句话，让它接着干（比如“目标还没达成”）
+    while (text) {
+      const message: Msg = { role: 'user', content: text };
+      session.messages.push(message);
+      session.save(message);
+      const final = await runLoop(session.messages, options(controller.signal));
+      text = await extensions.emit('agent_end', final);
+      if (text) print(dim(`\n↳ 扩展让 Agent 继续：${oneLine(text)}\n`));
+    }
     print('\n');
     return true;
   } catch (e) {
@@ -130,7 +141,7 @@ async function run(input: string) {
 
 const once = has('-p') ? argv[argv.indexOf('-p') + 1] ?? '' : undefined;
 // 不用 process.exit：输出接在管道上时它可能截断还没写完的内容
-const exit = (code = 0) => { process.exitCode = code; mcp.close(); rl.close(); };
+const exit = (code = 0) => { process.exitCode = code; void extensions.emit('shutdown'); mcp.close(); rl.close(); };
 rl.on('SIGINT', () => (controller ? controller.abort() : exit()));
 rl.on('close', () => once === undefined && exit());
 rl.on('line', line => {
@@ -141,6 +152,8 @@ rl.on('line', line => {
   if (text === '/exit') return exit();
   if (text === '/compact') return void maybeCompact(session.messages, true).catch(e => print(red(`${e.message}\n`))).finally(() => rl.prompt());
   if (!text) return rl.prompt();
+  const command = extensions.commands.get(text.slice(1).split(' ')[0]);
+  if (text.startsWith('/') && command) return void Promise.resolve(command(text.split(' ').slice(1).join(' '))).catch(e => print(red(`${e.message}\n`))).finally(() => rl.prompt());
   void run(text).then(() => rl.prompt());
 });
 

@@ -16,15 +16,19 @@ export async function connectMcp(servers: Record<string, ServerConfig>, warn: (m
     createInterface({ input: child.stdout }).on('line', line => {
       try { const reply = JSON.parse(line); pending.get(reply.id)?.(reply); pending.delete(reply.id); } catch {}
     });
-    const fail = (message: string) => { for (const settle of pending.values()) settle({ error: { message } }); pending.clear(); };
+    let dead = '';                                                  // 服务器退出后，之后的调用立刻失败，不会一直等
+    const fail = (message: string) => { dead = message; for (const settle of pending.values()) settle({ error: { message } }); pending.clear(); };
     child.on('error', e => fail(e.message));
     child.stdin.on('error', () => {});
     child.on('exit', () => fail(`MCP 服务器 ${server} 已退出`));
     const send = (message: object) => child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', ...message })}\n`);
-    const request = (method: string, params: object = {}) =>
+    const request = (method: string, params: object = {}, signal?: AbortSignal) =>
       new Promise<any>((resolve, reject) => {
+        if (dead) return reject(new Error(dead));
         const id = ++nextId;
         pending.set(id, reply => (reply.error ? reject(new Error(reply.error.message)) : resolve(reply.result)));
+        // 取消：不再等这个结果，并按协议通知服务器
+        signal?.addEventListener('abort', () => { pending.delete(id); send({ method: 'notifications/cancelled', params: { requestId: id } }); reject(new Error('已取消')); }, { once: true });
         send({ id, method, params });
       });
 
@@ -37,8 +41,8 @@ export async function connectMcp(servers: Record<string, ServerConfig>, warn: (m
           name: `mcp__${server}__${tool.name}`.replace(/[^\w-]/g, '_').slice(0, 64),
           description: tool.description ?? '',
           parameters: tool.inputSchema ?? { type: 'object', properties: {} },
-          run: async args => {
-            const result = await request('tools/call', { name: tool.name, arguments: args });
+          run: async (args, signal) => {
+            const result = await request('tools/call', { name: tool.name, arguments: args }, signal);
             const text = result.content.map((c: any) => c.text ?? `[${c.type}]`).join('\n');
             if (result.isError) throw new Error(text);
             return text;

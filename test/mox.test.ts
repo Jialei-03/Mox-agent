@@ -2,7 +2,7 @@
 // 模型的回答每次都不一样，所以断言只看结果：文件改没改、工具调没调、对话是否合法。
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -100,6 +100,8 @@ test('会话：逐条写进 JSONL，-c 恢复；上次中途退出的工具调�
   assert.match(resumed.messages[3].content as string, /中断/);
   assert.equal(openSession('/proj', home, true).messages.length, 4);
   assert.equal(openSession('/proj', tmp()).messages.length, 0);
+  appendFileSync(first.file, '{"type":"mess\n');              // 写到一半的坏行被跳过，会话照样能打开
+  assert.equal(openSession('/proj', home, true).messages.length, 4);
 });
 
 test('压缩：较早的消息换成模型写的摘要，切点落在用户消息前，重新打开会话结果一样', { skip }, async () => {
@@ -167,6 +169,15 @@ test('MCP：启动服务器、列出工具、调用；起不来的服务器只�
   assert.equal(await mcp.tools[0].run({ text: '你好' }), 'echo: 你好');
   assert.match(warnings[0], /broken/);
   mcp.close();
+
+  const flaky = await connectMcp({ flaky: { command: process.execPath, args: [join(import.meta.dirname, 'flaky-mcp.mjs')] } });
+  const [slow, crash] = flaky.tools;
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 100);
+  await assert.rejects(slow.run({}, controller.signal), /已取消/);
+  await assert.rejects(crash.run({}), /已退出/);
+  await assert.rejects(slow.run({}), /已退出/);                // 崩溃之后立刻失败，不会一直等
+  flaky.close();
 });
 
 test('命令行：子 Agent、扩展拦截、MCP 工具都由模型真实调用；-c 接着上次的会话', { skip }, async () => {

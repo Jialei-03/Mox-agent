@@ -16,7 +16,7 @@ export function openai({ baseUrl = 'https://api.openai.com/v1', apiKey = '', mod
     });
     if (!res.ok || !res.body) throw new Error(`模型请求失败（${res.status}）：${(await res.text()).slice(0, 500)}`);
 
-    let text = '', finish = 'stop', buffer = '';
+    let text = '', finish = '', buffer = '';
     const calls: ToolCall[] = [];
     const decoder = new TextDecoder();
     for await (const chunk of res.body) {
@@ -38,6 +38,8 @@ export function openai({ baseUrl = 'https://api.openai.com/v1', apiKey = '', mod
         if (choice.finish_reason) finish = choice.finish_reason;
       }
     }
+    // 没收到 finish_reason 就结束：连接中途断了，说到一半的话不能当成回答
+    if (!finish) throw new Error('模型的响应在完成之前就断开了');
     return { message: { role: 'assistant', content: text || null, ...(calls.length ? { tool_calls: calls } : {}) }, finish };
   };
 }

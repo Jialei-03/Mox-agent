@@ -19,7 +19,8 @@ export function openSession(cwd: string, home: string, resume = false): Session 
   const write = (record: object) => appendFileSync(file, `${JSON.stringify(record)}\n`);
   const messages: Msg[] = [];
   for (const line of latest ? readFileSync(file, 'utf8').split('\n').filter(Boolean) : []) {
-    const record = JSON.parse(line);
+    let record;
+    try { record = JSON.parse(line); } catch { continue; }       // 写到一半的坏行（比如磁盘满了）跳过，不让整个会话打不开
     if (record.type === 'compact') messages.splice(0, messages.length - record.keep, record.summary);
     else messages.push(record.message);
   }

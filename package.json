@@ -1,0 +1,10 @@
+{
+  "name": "mox-agent",
+  "version": "0.1.0",
+  "description": "一个零依赖、约 500 行的 Coding Agent",
+  "type": "module",
+  "bin": { "mox": "src/cli.ts" },
+  "engines": { "node": ">=22.18" },
+  "scripts": { "test": "node --test test/*.test.ts" },
+  "license": "MIT"
+}

@@ -1,6 +1,6 @@
 # mox
 
-一个零依赖的 Coding Agent，全部代码 656 行，每个机制一个文件。
+一个零依赖的 Coding Agent，全部代码 657 行，每个机制一个文件。
 
 它是一个能用的命令行 Agent：读代码、改文件、跑命令，会话可以恢复，上下文满了会压缩，能接 MCP 服务器、加载 Skills 和扩展，还能把子任务交给子 Agent。同时它短到一个下午就能读完，是 [Learn Pi Agent](https://github.com/Jialei-03/learn-pi-agent) 课程里动手搭 Agent 的范例。
 
@@ -55,7 +55,7 @@ mox -e guard.ts          # 加载一个扩展文件，可以写多次
 | --- | --- | --- |
 | [`src/model.ts`](src/model.ts) | 45 | 流式调用模型，把分片到达的工具调用拼完整 |
 | [`src/loop.ts`](src/loop.ts) | 63 | Agent 循环：请求 → 执行工具 → 交回结果，直到模型不再调用工具；插话、取消、截断保护 |
-| [`src/tools.ts`](src/tools.ts) | 157 | 七个工具，名字和参数与 Pi 一致：`read`、`write`、`edit`、`bash`、`grep`、`find`、`ls`；输出超过 2000 行或 50KB 时截断 |
+| [`src/tools.ts`](src/tools.ts) | 158 | 七个工具，名字和参数与 Pi 一致：`read`、`write`、`edit`、`bash`、`grep`、`find`、`ls`；输出超过 2000 行或 50KB 时截断 |
 | [`src/session.ts`](src/session.ts) | 44 | 会话写成 JSONL，逐条追加；恢复时给中途退出的工具调用补上“中断” |
 | [`src/compact.ts`](src/compact.ts) | 29 | 上下文压缩：较早的消息交给模型写成摘要，切点只落在用户消息前 |
 | [`src/context.ts`](src/context.ts) | 42 | 系统提示：AGENTS.md / CLAUDE.md、Skills 目录 |

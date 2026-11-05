@@ -9,7 +9,8 @@ const MAX_LINES = 2000, MAX_BYTES = 50 * 1024;
 function clip(text: string, keep: 'head' | 'tail' = 'head') {
   const lines = text.split('\n');
   let out = (keep === 'head' ? lines.slice(0, MAX_LINES) : lines.slice(-MAX_LINES)).join('\n');
-  if (out.length > MAX_BYTES) out = keep === 'head' ? out.slice(0, MAX_BYTES) : out.slice(-MAX_BYTES); // 按字符数近似
+  const bytes = Buffer.from(out);                                   // 按字节算（中文一个字 3 字节），切断的半个字去掉
+  if (bytes.length > MAX_BYTES) out = (keep === 'head' ? bytes.subarray(0, MAX_BYTES) : bytes.subarray(-MAX_BYTES)).toString().replace(/^\uFFFD+|\uFFFD+$/g, '');
   if (out === text) return text;
   return keep === 'head' ? `${out}\n…（后面省略了 ${text.length - out.length} 个字符）` : `…（前面省略了 ${text.length - out.length} 个字符）\n${out}`;
 }
@@ -34,7 +35,7 @@ export function codingTools(cwd: string): Tool[] {
         if (offset > lines.length) throw new Error(`offset ${offset} 超出了文件长度（${lines.length} 行）`);
         const wanted = lines.slice(offset - 1, limit ? offset - 1 + limit : undefined).slice(0, MAX_LINES);
         let count = 0;                                                  // 在 50KB 以内能放下几行
-        for (let size = 0; count < wanted.length && (size += wanted[count].length + 1) <= MAX_BYTES; count++);
+        for (let size = 0; count < wanted.length && (size += Buffer.byteLength(wanted[count]) + 1) <= MAX_BYTES; count++);
         count = Math.max(count, 1);
         const text = wanted.slice(0, count).join('\n');
         const next = offset + count;

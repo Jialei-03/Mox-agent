@@ -37,6 +37,21 @@ test('循环 + 工具：读代码、跑测试、修 bug、再验证', { skip }, 
   }
 });
 
+test('工具：和 Pi 同名同参数的七个工具', async () => {
+  const dir = tmp();
+  const tool = Object.fromEntries(codingTools(dir).map(t => [t.name, t]));
+  assert.deepEqual(Object.keys(tool), ['read', 'write', 'edit', 'bash', 'grep', 'find', 'ls']);
+  await tool.write.run({ path: 'src/a.ts', content: 'const one = 1;\nconst two = 2;\n' });
+  writeFileSync(join(dir, 'big.txt'), Array.from({ length: 2500 }, (_, i) => i + 1).join('\n'));
+  assert.match(await tool.read.run({ path: 'big.txt' }), /用 offset=2001 接着读/);
+  assert.equal(await tool.edit.run({ path: 'src/a.ts', edits: [{ oldText: 'one = 1', newText: 'one = 10' }, { oldText: 'two = 2', newText: 'two = 20' }] }), '已修改 src/a.ts（2 处）');
+  assert.throws(() => tool.edit.run({ path: 'src/a.ts', edits: [{ oldText: 'const', newText: 'let' }] }), /出现了 2 次/);
+  assert.equal(await tool.grep.run({ pattern: 'TWO', ignoreCase: true }), 'src/a.ts:2: const two = 20;');
+  assert.equal(await tool.find.run({ pattern: '*.ts' }), 'src/a.ts');
+  assert.equal(await tool.ls.run({}), 'big.txt\nsrc/');
+  assert.match(await tool.bash.run({ command: 'seq 1 3000; exit 2' }), /^…（前面省略[\s\S]*\n3000\n\n\[退出码 2\]$/);
+});
+
 test('权限：被拒绝的调用变成错误结果交回模型，文件没有被写', { skip }, async () => {
   const dir = tmp();
   const messages: Msg[] = [{ role: 'user', content: '用 write 工具创建 note.txt，内容是 hello。如果失败了，告诉我原因，不要换别的办法。' }];
@@ -133,7 +148,7 @@ test('扩展：注册工具（同名替换）、命令、系统提示片段，�
     },
     mox => mox.on('tool_call', () => '第二个扩展的理由'),
   ], { cwd: '/', tools, ask: async () => undefined });
-  assert.equal(tools.length, 4);
+  assert.equal(tools.length, 7);
   assert.equal(await tools.find(t => t.name === 'bash')!.run({}), 'sandboxed');
   assert.equal(await ext.emit('tool_call', 'write', {}), '计划模式下不能写文件');
   assert.equal(await ext.emit('tool_call', 'read', {}), '第二个扩展的理由');

@@ -34,7 +34,7 @@ export function systemPrompt(cwd: string, home: string, skills: Skill[]) {
   const notes = projectNotes(cwd, home);
   return [
     '你是 mox，一个在终端里工作的编程助手。用工具读代码、改文件、运行命令来完成用户的任务。',
-    '- 改文件前先读；小改动用 edit，新文件用 write。\n- 能用命令验证的结果，就运行命令验证。\n- 做完后用几句话说明做了什么。',
+    '- 用 ls、find、grep 找文件和代码，用 read 读；改文件前先读。\n- 小改动用 edit（同一个文件的几处改动放在一次调用里），新文件用 write。\n- 能用命令验证的结果，就运行命令验证。\n- 做完后用几句话说明做了什么。',
     `工作目录：${cwd}\n今天：${new Date().toISOString().slice(0, 10)}`,
     notes.length ? `项目说明，请遵守：\n${notes.join('\n')}` : '',
     skills.length ? `Skills 是可选的操作手册。任务和某个 Skill 相关时，先用 read 读它的 SKILL.md，再照着做：\n${skills.map(s => `- ${s.name}：${s.description}（${s.file}）`).join('\n')}` : '',

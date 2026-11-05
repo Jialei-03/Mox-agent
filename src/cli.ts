@@ -62,7 +62,7 @@ const basePrompt = systemPrompt(cwd, home, skills);
 const system = () => [basePrompt, ...extensions.prompts.map(part => part())].filter(Boolean).join('\n\n');
 
 // 权限：先问扩展，再问用户；只读工具直接执行
-const allowed = new Set(['read', 'task']);
+const allowed = new Set(['read', 'grep', 'find', 'ls', 'task']);
 async function beforeTool(name: string, args: unknown) {
   const reason = await extensions.emit('tool_call', name, args);
   if (reason) return reason;
